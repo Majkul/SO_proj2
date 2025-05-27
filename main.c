@@ -143,34 +143,38 @@ void *writer(void *arg) {
 
 // funkcja główna
 int main(int argc, char *argv[]) {
-    if (argc != 3) {
-        fprintf(stderr, "Użycie: %s <liczba_czytelników> <liczba_pisarzy>\n", argv[0]);
-        exit(1);
+    int num_of_writers;
+    int num_of_readers;
+    for(int i=1; i<argc; i++){
+        if(strcmp(argv[i],"ReaderQ:")==0){
+            num_of_readers = atoi(argv[++i]);
+            printf("num of readers: %d\n", num_of_readers);
+        }else
+        if(strcmp(argv[i],"WriterQ:")==0){
+            num_of_writers = atoi(argv[++i]);
+            printf("num_of_writers: %d\n", num_of_writers);
+        }else
     }
-
-    int R = atoi(argv[1]);
-    int W = atoi(argv[2]);
-
     srand(time(NULL));
 
-    pthread_t threads[R + W];
+    pthread_t threads[num_of_readers + num_of_writers];
 
     // uruchomienie czytelników
-    for (int i = 0; i < R; i++) {
+    for (int i = 0; i < num_of_readers; i++) {
         int *id = malloc(sizeof(int));
         *id = i;
         pthread_create(&threads[i], NULL, reader, id);
     }
 
     // uruchomienie pisarzy
-    for (int i = 0; i < W; i++) {
+    for (int i = 0; i < num_of_writers; i++) {
         int *id = malloc(sizeof(int));
         *id = i;
-        pthread_create(&threads[R + i], NULL, writer, id);
+        pthread_create(&threads[num_of_readers + i], NULL, writer, id);
     }
 
     // program działa bez końca
-    for (int i = 0; i < R + W; i++) {
+    for (int i = 0; i < num_of_readers + num_of_writers; i++) {
         pthread_join(threads[i], NULL);  // w praktyce nigdy się nie kończy
     }
 

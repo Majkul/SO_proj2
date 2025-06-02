@@ -11,171 +11,197 @@
 typedef enum {READER, WRITER} Role;
 
 typedef struct {
-    pthread_t thread;
-    Role role;
+    pthread_t thread; //id wątku
+    Role role; //czytelnik czy pisarz
     int id;
 } Request;
 
-Request queue[MAX_QUEUE];
-int queue_start = 0, queue_end = 0;
+typedef struct {
+    Request queue[MAX_QUEUE]; //kolejka żądań
+    int queue_start; //indeks początku kolejki
+    int queue_end; //indeks końca kolejki
 
-int active_readers = 0;
-bool writer_active = false;
+    int active_readers; //liczba aktywnych czytelników
+    bool writer_active; //czy jest aktualnie pisarz
 
-int reader_queue_count = 0;
-int writer_queue_count = 0;
+    int reader_queue_count; //liczba czytelników w kolejce
+    int writer_queue_count; //liczba pisarzy w kolejce
 
-pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
+    pthread_mutex_t mutex;
+    pthread_cond_t cond; //warunek synchronizacji
+} Monitor;
 
-// wypisywanie aktualnego stanu
-void print_status() {
+//struktura do przekazania argumentów do funkcji wątku
+typedef struct {
+    int id;
+    Monitor *monitor;
+} ThreadArgs;
+
+//wypisanie aktualnego stanu
+void print_status(Monitor *m) {
     printf("ReaderQ: %d WriterQ: %d [in: R:%d W:%d]\n",
-           reader_queue_count,
-           writer_queue_count,
-           active_readers,
-           writer_active ? 1 : 0);
+           m->reader_queue_count,
+           m->writer_queue_count,
+           m->active_readers,
+           m->writer_active ? 1 : 0);
 }
 
-// dodanie do kolejki
-void enqueue(Request r) {
-    queue[queue_end] = r;
-    queue_end = (queue_end + 1) % MAX_QUEUE;
+void enqueue(Monitor *m, Request r) {
+    m->queue[m->queue_end] = r; //dodanei żądania na koniec kolejki
+    m->queue_end = (m->queue_end + 1) % MAX_QUEUE; //zmiana indeksu końca kolejki
 
-    if (r.role == READER) reader_queue_count++;
-    else writer_queue_count++;
+    if (r.role == READER) m->reader_queue_count++;
+    else m->writer_queue_count++;
 
-    print_status();
+    print_status(m);
 }
 
-// usunięcie z kolejki
-Request dequeue() {
-    Request r = queue[queue_start];
-    queue_start = (queue_start + 1) % MAX_QUEUE;
+Request dequeue(Monitor *m) {
+    Request r = m->queue[m->queue_start]; //odczytanie żądania z początku kolejki
+    m->queue_start = (m->queue_start + 1) % MAX_QUEUE; //zmiana indeksu początku kolejki
 
-    if (r.role == READER) reader_queue_count--;
-    else writer_queue_count--;
+    if (r.role == READER) m->reader_queue_count--;
+    else m->writer_queue_count--;
 
-    print_status();
-    return r;
+    print_status(m);
+    return r; //zwrócenie odczytanego żądania
 }
 
-// czy wątek jest pierwszy w kolejce
-bool is_first_in_queue(pthread_t tid) {
-    return queue_start != queue_end && pthread_equal(queue[queue_start].thread, tid);
+//sprawdzenie, czy obecny wątek jest pierwszy w kolejce
+bool is_first_in_queue(Monitor *m, pthread_t tid) {
+    return m->queue_start != m->queue_end &&
+           pthread_equal(m->queue[m->queue_start].thread, tid);
 }
 
-// funkcja czytelnika
 void *reader(void *arg) {
-    int id = *((int *)arg);
-    free(arg);
+    ThreadArgs *targs = (ThreadArgs *)arg;
+    int id = targs->id;
+    Monitor *m = targs->monitor;
+    free(targs);
 
     while (1) {
-        pthread_t tid = pthread_self();
+        pthread_t tid = pthread_self(); //id bieżącego wątku
         Request r = {tid, READER, id};
 
-        pthread_mutex_lock(&mutex);
-        enqueue(r);
+        pthread_mutex_lock(&m->mutex);
+        enqueue(m, r);
 
-        while (!is_first_in_queue(tid) || writer_active) {
-            pthread_cond_wait(&cond, &mutex);
+        //czeka dopóki nie jest pierwszy w kolejce lub ktoś aktualnie pisze
+        while (!is_first_in_queue(m, tid) || m->writer_active) {
+            pthread_cond_wait(&m->cond, &m->mutex);
         }
 
-        dequeue();
-        active_readers++;
-        print_status();
-        pthread_cond_broadcast(&cond);
-        pthread_mutex_unlock(&mutex);
-
+        dequeue(m); //usuwa siebie z kolejki
+        m->active_readers++; //zwiększ licznik aktywnych czytelników
+        print_status(m);
         printf("Czytelnik %d czyta\n", id);
-        sleep(rand() % 3 + 1);
+        pthread_cond_broadcast(&m->cond); //obudź innych (inni czytelnicy mogą wejść)
+        pthread_mutex_unlock(&m->mutex);
 
-        pthread_mutex_lock(&mutex);
-        active_readers--;
-        print_status();
-        if (active_readers == 0)
-            pthread_cond_broadcast(&cond);
-        pthread_mutex_unlock(&mutex);
+        sleep(rand() % 3 + 1); //symulacja czasu czytania
 
+        pthread_mutex_lock(&m->mutex);
+        m->active_readers--; //zakończ czytanie
+        print_status(m);
         printf("Czytelnik %d kończy czytanie\n", id);
-        sleep(rand() % 3 + 1);
+        if (m->active_readers == 0)
+            pthread_cond_broadcast(&m->cond); //jeśli ostatni (nie ma więcej czytelników) to obudźi pisarzy
+        pthread_mutex_unlock(&m->mutex);
     }
 
     return NULL;
 }
 
-// funkcja pisarza
 void *writer(void *arg) {
-    int id = *((int *)arg);
-    free(arg);
+    ThreadArgs *targs = (ThreadArgs *)arg;
+    int id = targs->id;
+    Monitor *m = targs->monitor;
+    free(targs);
 
     while (1) {
-        pthread_t tid = pthread_self();
+        pthread_t tid = pthread_self(); //id bieżącego wątku
         Request r = {tid, WRITER, id};
 
-        pthread_mutex_lock(&mutex);
-        enqueue(r);
+        pthread_mutex_lock(&m->mutex);
+        enqueue(m, r);
 
-        while (!is_first_in_queue(tid) || active_readers > 0 || writer_active) {
-            pthread_cond_wait(&cond, &mutex);
+        //czeka dopóki nie jest pierwszy, są aktywni czytelnicy lub ktoś pisze
+        while (!is_first_in_queue(m, tid) || m->active_readers > 0 || m->writer_active) {
+            pthread_cond_wait(&m->cond, &m->mutex);
         }
 
-        dequeue();
-        writer_active = true;
-        print_status();
-        pthread_mutex_unlock(&mutex);
-
+        dequeue(m);//usuwa siebie z kolejki
+        m->writer_active = true;
+        print_status(m);
         printf("Pisarz %d pisze\n", id);
-        sleep(rand() % 3 + 2);
+        pthread_mutex_unlock(&m->mutex);
 
-        pthread_mutex_lock(&mutex);
-        writer_active = false;
-        print_status();
-        pthread_cond_broadcast(&cond);
-        pthread_mutex_unlock(&mutex);
+        sleep(rand() % 3 + 2); //symulacja czasu pisania
 
+        pthread_mutex_lock(&m->mutex);
+        m->writer_active = false;
+        print_status(m);
         printf("Pisarz %d kończy pisanie\n", id);
-        sleep(rand() % 3 + 1);
+        pthread_cond_broadcast(&m->cond); //obudź czekających
+        pthread_mutex_unlock(&m->mutex);
     }
 
     return NULL;
 }
 
-// funkcja główna
 int main(int argc, char *argv[]) {
-    int num_of_writers;
-    int num_of_readers;
-    for(int i=1; i<argc; i++){
-        if(strcmp(argv[i],"ReaderQ:")==0){
-            num_of_readers = atoi(argv[++i]);
-            printf("num of readers: %d\n", num_of_readers);
-        }else
-        if(strcmp(argv[i],"WriterQ:")==0){
-            num_of_writers = atoi(argv[++i]);
-            printf("num_of_writers: %d\n", num_of_writers);
-        }else
+    int num_of_readers = 0;
+    int num_of_writers = 0;
+    // ./program -r num_of_readers -w num_of_writers
+    while ((opt = getopt(argc, argv, "r:w:")) != -1) {
+        switch (opt) {
+            case 'r':
+                num_of_readers = atoi(optarg);
+                break;
+            case 'w':
+                num_of_writers = atoi(optarg);
+                break;
+            default:
+                fprintf(stderr, "Użycie: %s -r liczba_czytelników -w liczba_pisarzy\n", argv[0]);
+                exit(EXIT_FAILURE);
+        }
     }
+
     srand(time(NULL));
 
     pthread_t threads[num_of_readers + num_of_writers];
 
-    // uruchomienie czytelników
+    //inicjalizacja monitora
+    Monitor monitor = {
+        .queue_start = 0,
+        .queue_end = 0,
+        .active_readers = 0,
+        .writer_active = false,
+        .reader_queue_count = 0,
+        .writer_queue_count = 0,
+        .mutex = PTHREAD_MUTEX_INITIALIZER,
+        .cond = PTHREAD_COND_INITIALIZER
+    };
+
+    //tworzenie wątków czytelników
     for (int i = 0; i < num_of_readers; i++) {
-        int *id = malloc(sizeof(int));
-        *id = i;
-        pthread_create(&threads[i], NULL, reader, id);
+        ThreadArgs *args = malloc(sizeof(ThreadArgs));
+        args->id = i;
+        args->monitor = &monitor;
+        pthread_create(&threads[i], NULL, reader, args);
     }
 
-    // uruchomienie pisarzy
+    //tworzenie wątków pisarzy
     for (int i = 0; i < num_of_writers; i++) {
-        int *id = malloc(sizeof(int));
-        *id = i;
-        pthread_create(&threads[num_of_readers + i], NULL, writer, id);
+        ThreadArgs *args = malloc(sizeof(ThreadArgs));
+        args->id = i;
+        args->monitor = &monitor;
+        pthread_create(&threads[num_of_readers + i], NULL, writer, args);
     }
 
-    // program działa bez końca
+    //dołączenie wątków
     for (int i = 0; i < num_of_readers + num_of_writers; i++) {
-        pthread_join(threads[i], NULL);  // w praktyce nigdy się nie kończy
+        pthread_join(threads[i], NULL);
     }
 
     return 0;

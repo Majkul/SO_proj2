@@ -152,6 +152,7 @@ void *writer(void *arg) {
 int main(int argc, char *argv[]) {
     int num_of_readers = 0;
     int num_of_writers = 0;
+    int opt;
     // ./program -r num_of_readers -w num_of_writers
     while ((opt = getopt(argc, argv, "r:w:")) != -1) {
         switch (opt) {

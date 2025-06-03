@@ -13,7 +13,6 @@ typedef enum {READER, WRITER} Role;
 typedef struct {
     pthread_t thread; //id wątku
     Role role; //czytelnik czy pisarz
-    int id;
 } Request;
 
 typedef struct {
@@ -30,12 +29,6 @@ typedef struct {
     pthread_mutex_t mutex;
     pthread_cond_t cond; //warunek synchronizacji
 } Monitor;
-
-//struktura do przekazania argumentów do funkcji wątku
-typedef struct {
-    int id;
-    Monitor *monitor;
-} ThreadArgs;
 
 //wypisanie aktualnego stanu
 void print_status(Monitor *m) {

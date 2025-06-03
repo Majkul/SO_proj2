@@ -11,9 +11,6 @@ const int writing_time = 3e6;
 const int reading_sleep = 2e6;
 const int writing_sleep = 1e6;
 
-int reader_count_in = 0;
-int writer_count_in = 0;
-
 struct monitor_t{
     int has_writer; //1 yes; 0 no
     int reader_count;
@@ -124,6 +121,10 @@ void* writer_func(void* arg){
         
         
 void main(int argc, char* argv[]){
+    
+    int reader_count_in = 0;
+    int writer_count_in = 0;
+
     ///*
     //Readers
     if(argc < 2){

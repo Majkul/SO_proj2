@@ -5,10 +5,10 @@
 #include <unistd.h>
 
 // Czasy czytania, pisania, oraz czekania pisarzy i czytelników w mikrosekundach 
-const int reading_time = 50;
-const int writing_time = 50000;
-const int readers_waiting_time = 50;
-const int writers_waiting_time = 500;
+const int reading_time = 5000;            // 0.005 sekundy 
+const int writing_time = 500000;          // 0.5 sekundy
+const int readers_waiting_time = 5000;    // 0.005 sekundy
+const int writers_waiting_time = 50000;   // 0.05 sekundy
 
 // Monitor do synchronizacji czytelników i pisarzy
 typedef struct {
@@ -113,8 +113,13 @@ void* writing(void* arg) {
         m->is_writing = 0;
         print_status(m);
 
-        // Obudź wszystkich oczekujących czytelników
-        pthread_cond_broadcast(&m->reading_cond);
+        if (m->reading_queue_count == 0) {
+            // Jeśli nie ma czytelników w kolejce, obudź pisarzy
+            pthread_cond_signal(&m->writing_cond);
+        } else {
+            // Jeśli są czytelnicy w kolejce, obudź ich
+            pthread_cond_broadcast(&m->reading_cond);
+        }
         pthread_mutex_unlock(&m->mutex);
 
         // Pisarz czeka przed kolejnym pisaniem

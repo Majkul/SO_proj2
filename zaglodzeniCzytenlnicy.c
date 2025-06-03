@@ -88,7 +88,7 @@ void* writer_func(void* arg){
         
         pthread_mutex_lock(&mtx->mutex);
         print_status(mtx);
-        while(mtx->has_writer || mtx->writer_count || mtx->reader_count){
+        while(mtx->has_writer || mtx->reader_count){
             mtx->writer_queued++;
             //printf("writer queued\n");
             pthread_cond_wait(&mtx->writers_cond,&mtx->mutex);

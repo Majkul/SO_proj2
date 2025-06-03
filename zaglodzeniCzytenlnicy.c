@@ -68,10 +68,10 @@ void* reader_func(void* arg){
         //finished reading
         mtx->reader_count--;
         
-        if(mtx->reader_count <= 0){
+        if(mtx->reader_count <= 0 ){
             //printf("reader,writer\n");
             pthread_cond_signal(&mtx->writers_cond);
-        }else{
+        }else if( ! mtx->writer_queued ){
             //printf("reader,reader\n");
             pthread_cond_broadcast(&mtx->readers_cond);
         }
